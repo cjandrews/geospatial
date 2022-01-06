@@ -1,0 +1,48 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>ArcGIS REST test</title>
+  <meta name="description" content="ArcGIS REST test">
+  <meta name="author" content="candrews">
+
+  <!--<link rel="stylesheet" href="css/styles.css?v=1.0">-->
+
+</head>
+
+<body>
+  <script>
+    function submitForm(){
+      var xhr = new XMLHttpRequest(); 
+      xhr.open("POST", "https://pm.maps.arcgis.com/arcgis/tokens/GenerateToken"); 
+      //xhr.onload=function(event){ document.getElementById("i1").innerHTML=("The server says: " + event.target.response); }; 
+      xhr.onload=function(event){ document.getElementById("i1").innerHTML=("Hello"); }; 
+      var formData = new FormData(document.getElementById("myForm")); 
+      xhr.send(formData);
+    }
+    
+    function testForm(){
+      alert("hello");
+    }
+  </script>
+  
+  <form name="myForm">
+    <fieldset>
+      <legend>REST Test:</legend>
+      username:<br>
+      <input type="text" name="username" value="">
+      <br>
+      password:<br>
+      <input type="text" name="password" value="">
+      <br><br>
+      <input type="hidden" id="referrer" name="referrer" value="https://chri7928.github.io/">
+      <input type="button" onclick="submitForm();" value="Click">
+    </fieldset>
+  </form>
+  
+  <iframe id="i1" name="i1" height="200" width="600">
+  </iframe>
+</body>
+</html>

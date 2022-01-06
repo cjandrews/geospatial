@@ -1,0 +1,96 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>   </title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/light/main.css" />
+    <script src="https://js.arcgis.com/4.18/"></script>
+
+    <script>
+      require(["esri/views/SceneView", "esri/WebScene"],  
+              function (SceneView, WebScene) {
+
+       var scene = new WebScene({
+          portalItem: {
+            id: "906dc270244e43b08d1f0dbabc4d3912"
+          }
+        });
+
+        var view = new SceneView({
+          container: "viewDiv",
+          map: scene,
+          scale: 50000000,
+          center: [-80, 0]
+        });
+        
+        var mapX = -80;
+        var mapY = 0;
+        var counter = 0;
+        var increment = 1;
+        var delay = 100;
+        var cam = null;
+        var counterReset = 30;
+
+        function spin(){
+          counter += increment;
+          if (counter == counterReset){
+            // change layers
+            var toggled = false;
+            for (var lv in view.layerViews){
+              //console.log('in for lv');
+              if (!lv){ //layers are not yet loaded
+                toggled = true;
+                break;
+              }
+              if (lv.visible){
+                //lv.visible = false;
+                //break;
+              }
+            }
+            if (!toggled){
+              for (var lv in view.layerViews){
+                lv.visible = true;
+              }
+            }
+            counter = 0;
+          }
+          mapX -= 1;
+          cam.position = {
+            latitude: mapY,
+            longitude: mapX,
+            z: 20000000  // altitude in meters
+          }
+          // go to the updated camera
+          view.goTo(cam);
+          // spin it again
+          setTimeout(function(){ spin();},delay);
+        }
+        window.spin = spin;
+        
+        view.when(function(){
+          view.environment.lighting.cameraTrackingEnabled = true;
+          cam = view.camera.clone();
+          spin();
+        });
+      }); 
+    </script>
+  </head>
+
+  <body onload="">
+    <div id="viewDiv"></div>
+    
+    <script>
+    </script>
+  </body>
+</html>

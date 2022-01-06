@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- Code provided for demonstration purposes.  No warranty or guarantee is implied. -->
+  <meta charset="utf-8">
+  <meta name="description" content="A simulation game demonstrating the ArcGIS API for JavaScript. Demonstration use only.">
+  <meta name="keywords" content="JavaScript,Esri,ArcGIS">
+  <meta name="author" content="Chris Andrews">
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Groundhog City Simulation - Demonstration Use Only</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.11/esri/themes/dark-red/main.css"/>
+  <link rel="stylesheet" href="styles/groundhog_city.css">
+  <script src="https://js.arcgis.com/4.13/"></script>
+  <script src="scripts/groundhog-help.js"></script>
+
+  <script>
+    //Apparently from Facebook Slingshot
+    var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    //State variables
+    var isStopped = true;
+    var isReset = true;
+    var isPaused = false;
+    var isRunning = false;
+    var isRunningOneStep = false;
+
+    const maxInfectionDuration = 7;
+    const maxInfectionDistance = 100; // (m)
+
+    //Globals
+    var totalBuildings = -1;
+    var infectionDay = 0;
+    var svDefaultColor = [0,0,255,1];
+    var infectionDistance = 35;
+    var mortalityRate = 0.05; // 0..1
+    var infectionDuration = 3;
+    var infectionRate = 0.1; // 0..1
+
+    var infected = []; //will be an array of arrays
+    var infectedGeometry = {}; //going to try saving geometry to not query too much
+    var deceased = [];// will be an array of ids
+    var infectionBufferByDay = [];
+
+    var simulationState = {
+      seeds: [],
+      centroids: {},
+      infectionDistance,
+      mortalityRate,
+      infectionDuration,
+      infectionRate,
+      finalInfected: 0,
+      totalDeceased: 0,
+      totalDays: 0,
+      totalElapsedTime: 0,
+      finalPctInfected: 0,
+      cumulativeInfections: 0,
+      history: "",
+      getScore(){
+        var score = Math.round(10000 -
+          Math.sqrt(
+            (5000*Math.pow((100 - (this.finalPctInfected*100)),2)) +
+            (20*Math.pow((10 - (this.infectionRate*100)),2)) +
+            (10*Math.pow((5 - (this.mortalityRate*100)),2)) +
+            (4*Math.pow((35 - this.infectionDistance),2)) +
+            (25*Math.pow((3 - this.infectionDuration),2)) +
+            (10*Math.pow((1 - this.seeds.length),2))
+          ));
+        return score;
+      },
+      toString: function(){
+        let val = "Simulation run report:<br/>\r\n";
+        val += "Score: " + this.getScore() + "<br/>\r\n"
+        for (item in Object.keys(this)){
+        	var aType = (typeof this[Object.keys(this)[item]]);
+          if ((aType != "function") && (aType != "object") && (Object.keys(this)[item] != "history")){
+          	val += "&nbsp;&nbsp;&nbsp;" + Object.keys(this)[item] + ": " + Object.values(this)[item] + "<br/>\r\n";
+          }
+        }
+        val += "Seed building IDs:<br/>\r\n";
+        for (item in this.seeds){
+          val += "&nbsp;&nbsp;&nbsp;" + this.seeds[item] + "<br/>\r\n";
+        }
+        val += "Run daily history:<br/>\r\n" + this.history + "<br/>\r\n";
+        return val;
+      },
+      init: function(keepSeeds=false){
+        if (!keepSeeds){
+          this.seeds = [];
+          this.centroids = {};
+        }
+        this.infectionDistance = 0;
+        this.infectionRate = 0;
+        this.infectionDuration = 0;
+        this.mortalityRate = 0;
+        this.finalInfected = 0;
+        this.totalDeceased = 0;
+        this.totalDays = 0;
+        this.totalElapsedTime = 0;
+        this.history = "";
+        this.finalPctInfected = 0;
+        this.cumulativeInfections = 0;
+      }
+    };
+
+    // select infected houses
+    // set ageing duration
+    // set % terminal or reinfectable
+    // set buffer distance
+    // run simulation till pause or to 100 (keep score)
+    //  Infect adjacent houses
+    //  Age infection at each infected house
+    //  Update renderer
+    // TODO?: Show score (Number of houses infected?)
+    // DONE: Create on screen controls - reset, duration, terminal, distance
+    // TODO?: Show infection %, mortality %
+    // DONE: Help dialog
+    // DONE: Intro dialog/title dialog
+    // TODO?: Add restore to life? (Time limit on death)
+    // DONE: Add ability to step forward one day >|
+    // DONE: Capture initial simulation state (params + seeds)
+    // DONE: Fix user setup logic so that they can set seeds then change parameters
+    // DONE: Add rewind to start of scenario to replay existing scenario
+    // TODO: Add leaderlines to initial seeds
+    // TODO: Add mobile UX logic
+
+    function setSlider(sName, vName, min, max, current, execCode){
+      var slider = document.getElementById(sName);
+      var output = document.getElementById(vName);
+      slider.min = min;
+      slider.max = max;
+      slider.value = current;
+      output.innerHTML = slider.value;
+
+      slider.oninput = function() {
+        output.innerHTML = this.value;
+        if (execCode){
+          execCode();
+        }
+      }
+    }
+
+    function setStatus(msg, img, clearTimer){
+      var val = "";
+      var sd = document.getElementById("statusDiv");
+      if (msg){
+        val += msg;
+      }
+      if (img){
+        val += "<img class='statusImg' src='" + img + "'/>";
+      }
+      if (val == ""){
+        sd.style.display = "none";
+      } else {
+        sd.style.display = "block";
+      }
+      sd.innerHTML = val;
+
+      if (clearTimer){
+        setTimeout("setStatus();", clearTimer * 1000);
+      }
+    }
+
+    require([
+      "esri/Map",
+      "esri/views/SceneView",
+      "esri/layers/SceneLayer",
+      "esri/layers/GraphicsLayer",
+      "esri/Graphic",
+      "esri/geometry/geometryEngine",
+      "esri/renderers/smartMapping/statistics/summaryStatistics",
+      "esri/widgets/Fullscreen",
+      "esri/tasks/support/Query"
+    ], function(Map,
+      SceneView,
+      SceneLayer,
+      GraphicsLayer,
+      Graphic,
+      geometryEngine,
+      summaryStatistics,
+      Fullscreen,
+      Query) {
+
+      // Create Map
+      var map = new Map({
+        basemap: "dark-gray",
+        ground: "world-elevation"
+      });
+
+      // Create the SceneView
+      var view = new SceneView({
+        container: "viewDiv",
+        qualityProfile: "high",
+        map: map,
+        camera: {
+          position: [(-122.47876 + ((Math.random()-0.5)/100)), (48.75368 + ((Math.random()-0.5)/100)), 1000],
+          tilt: 35,
+          heading: 50
+        },
+        environment: {
+          background: {
+            type: "color",
+            color: [30, 30, 30, 1]
+          },
+          starsEnabled: false,
+          atmosphereEnabled: false
+        }
+      });
+
+      // Create a GraphicsLayer to add buffer graphics
+      var bufferLayer = new GraphicsLayer();
+      map.add(bufferLayer);
+
+      // Create SceneLayer and add to the map
+      var sceneLayer = new SceneLayer({
+        portalItem: {
+          id: "dc2aaa6ba42f48d280398f69419a221b"//"fa0e0058ff394dd7a9902ede1d04721b"
+        },
+        popupEnabled: false
+      });
+      map.add(sceneLayer);
+
+      sceneLayer.when(function(){
+        summaryStatistics({
+          layer: sceneLayer,
+          field: "NUMFIELD"
+        }).then(function(stats){
+          totalBuildings = stats.count;
+          console.log('Total buildings = ' + totalBuildings);
+        });
+        setStatus("Simulation loaded.", null, 2);
+      });
+
+      function createInfectedRenderers(iList, iColor){
+        var res = [];
+        for (item in iList){
+          res[res.length] = JSON.parse('{"value": "' + iList[item] +
+          '","label": "test","symbol": {"type": "mesh-3d","symbolLayers": [{"type": "fill","material": {"color": ' +
+          iColor + ',"colorMixMode": "replace"}}]}}');
+        }
+        return res;
+      }
+
+      function getUniqueValueRenderer() {
+        var res = {
+          type: "unique-value",
+          field: "OBJECTID",
+          defaultSymbol: {
+            type: "mesh-3d",
+            symbolLayers: [{
+              type: "fill",
+              material: {
+                color: svDefaultColor,
+                colorMixMode: "replace"
+              }
+            }]
+          },
+          uniqueValueInfos: [],
+          legendOptions: { title: "Infected" }
+        };
+        if (infected.length > 0){
+          for (r in infected){
+            let tColor = Math.round(255 - (255/infected.length*r));
+            res.uniqueValueInfos = res.uniqueValueInfos.concat(createInfectedRenderers(infected[r],
+              "[" + tColor + ", 0, 0]"));
+          }
+          if (deceased.length > 0){
+            res.uniqueValueInfos = res.uniqueValueInfos.concat(createInfectedRenderers(deceased, "[0,0,0]"));
+          }
+        }
+        return res;
+      }
+
+      sceneLayer.renderer = getUniqueValueRenderer();
+
+      //Used for the buffer symbol
+      var polySym = {
+        type: "simple-fill", // autocasts as new SimpleFillSymbol()
+        color: [255, 213, 0, 0.2],
+        outline: {
+          color: [230, 213, 0, 0.5],
+          width: 1
+        }
+      };
+
+      // capture click events on the view
+      view.on("click", function(event) {
+        // get the returned screen x, y coordinates and use it
+        // with hitTest to find if any graphics were clicked
+        // (using promise chaining for cleaner code and error handling)
+        view.hitTest(event).then(function(response) {
+          var result = response.results[0];
+          if (result && result.graphic) {
+            return result.graphic;
+          }
+        }).then(function(graphic) {
+          if (graphic){// for some reason this is coming across as undefined
+            // now extract the object id from the graphic
+            if (isStopped && isReset){
+              var tid = graphic.attributes.OBJECTID;
+              var tind = infected[0].findIndex(function(tval){return (tval == tid);});
+              if (tind > -1){
+                infected[0].splice(tind, 1);//remove the clicked feature
+                simulationState.seeds.splice(tind, 1);
+              } else {
+                infected[0].push(tid);//add the clicked feature
+                simulationState.seeds.push(tid);
+              }
+              sceneLayer.renderer = getUniqueValueRenderer();
+            }
+          } else {
+            console.warn("Got unexpected undefined graphic");
+          }
+        }).catch(function(error) {
+          console.error(error);
+        });
+      });
+
+      view.ui.add("paneDiv", "bottom-left");
+      view.ui.add("runDiv", "bottom-right");
+      view.ui.add(
+        new Fullscreen({
+          view: view,
+          element: viewDiv
+        }),
+        "top-right"
+      );
+      view.ui.add("scoreDiv", "top-right");
+      view.ui.empty("top-left");
+      view.ui.add("infoDiv", "top-left");
+
+      function resetInfected(keepSeeds=false){
+        //Set up the infected array
+        infected = [];
+        for (iD = 0; iD < infectionDuration; iD++){
+         infected.push([]);
+        }
+        simulationState.init(keepSeeds);
+        if (keepSeeds){
+          for (item in simulationState.seeds){
+            infected[0].push(simulationState.seeds[item]);
+          }
+        }
+        deceased = [];
+        infectedGeometry = [];
+        console.log('Initialized infected');
+      }
+      window.resetInfected = resetInfected;
+
+      function initializeSim(keepSeeds=false){
+        //init infected arrays
+        resetInfected(keepSeeds);
+        sceneLayer.renderer = getUniqueValueRenderer();
+
+        //Clear infection day
+        infectionDay = 0;
+
+        isStopped = true;
+        isReset = true;
+        isPaused = false;
+        isRunning = false;
+        report = "";
+
+        // Clear any graphics layers
+        bufferLayer.removeAll();
+        infectionBufferByDay = [];
+        setProgress("currentInfectionDiv", 0, false, "currentInfectedVal", (0 + "%"));
+        document.getElementById("currentDayVal").innerHTML = "0";
+      }
+      window.initializeSim = initializeSim;
+
+      //Change the position of a vertical progress indicator
+      function setProgress(divName, val, down, textSpan, textVal) {
+      	if (!down){
+        	val = 100 - val;
+        }
+        var elem = document.getElementById(divName);
+        elem.style.height = val + '%';
+        if (textVal){
+          document.getElementById(textSpan).innerHTML = textVal;
+        }
+      }
+      window.setProgress = setProgress;
+
+      //Run the Simulation
+      async function runSim(){
+        var totalInfected = 0;
+        if (isRunning || isRunningOneStep){
+          setTimer();
+          setStatus("Simulating day " + infectionDay + "<img src='images/animated-elipsis.gif' style='display:inline;'/>");
+          if (infectionDay == 0){
+            simulationState.mortalityRate = mortalityRate;
+            simulationState.infectionDistance = infectionDistance;
+            simulationState.infectionDuration = infectionDuration;
+            simulationState.infectionRate = infectionRate;
+            console.log(simulationState.toString().replace("<br/>","\r\n").replace("&nbsp;"," "));
+            simulationState.cumulativeInfections += infected[0].length;
+          }
+
+          // DONE: Create simulation logic
+          var query = null;
+          var bigBuffer = null; // Geometry to use to union the buffers
+          var tempBuffer = null;
+          var newlyInfected = [];
+
+          // Loop through the current infected list
+          for (age in infected){
+              var oids = [];
+              for (iid in infected[age]){
+                let oid = infected[age][iid];
+                if (infectedGeometry[oid] == null){ // Geometry is not already saved
+                  oids.push(oid);
+                  // Note: grouping OIDs 100 at a time becuase I'm unsure of REST GET URL limits
+                  // TODO: Consider converting this back to Promises with Promises.all and an array of the query promises
+                  if ((oids.length == 100) || (iid == (infected[age].length-1))){
+                    query = sceneLayer.createQuery();
+                    query.objectIds = oids;
+                    query.returnGeometry = true;
+                    query.outFields = ['*'];
+                    // Query the feature to get the feature graphics
+                    // Note converted from .then to async/await becuase of the better flow control
+                    let myquery = sceneLayer.queryFeatures(query);
+                    let result = await myquery;
+                    // Create the buffer based on the graphic and infectionDistance
+                    // DONE: Convert this to a set of n geometries returned to reduce queries
+                    for (res in result.features){
+                      toid = result.features[res].attributes["OBJECTID"];
+                      if (infectionDay == 0){
+                        simulationState.centroids[toid] = result.features[res].geometry.extent.center;
+                      }
+
+                      infectedGeometry[toid] =
+                        geometryEngine.geodesicBuffer(result.features[res].geometry,
+                        infectionDistance/1000, "kilometers"); // store the buffer not the geometry
+
+                      // Union the buffer to the combined buffer geometry
+                      if (bigBuffer == null){
+                        bigBuffer = infectedGeometry[toid];
+                      } else {
+                        bigBuffer = geometryEngine.union([infectedGeometry[toid], bigBuffer]);
+                      }
+                    }
+                    oids = [];
+                  } // else skip till I have enough to query
+                } else { // add the geometry to the big buffer
+                  // Union the buffer to the combined buffer geometry
+                  if (bigBuffer == null){
+                    bigBuffer = infectedGeometry[oid];
+                  } else {
+                    bigBuffer = geometryEngine.union([infectedGeometry[oid], bigBuffer]);
+                  }
+                }
+              }
+          }
+
+          // find buildings within buffer
+          if (bigBuffer != null){
+            infectionBufferByDay.push(bigBuffer);
+            // Draw the unioned buffer
+            bufferLayer.removeAll();
+            if (document.getElementById("showInfectionZoneChb").checked){
+              for (b in infectionBufferByDay){
+                bufferLayer.add(new Graphic({
+                  geometry: infectionBufferByDay[b],
+                  symbol: polySym
+                }));
+              }
+            } else {
+              bufferLayer.add(new Graphic({
+                geometry: bigBuffer,
+                symbol: polySym
+              }));
+            }
+            tempBuffer = geometryEngine.geodesicBuffer(bigBuffer.extent,
+              0.250, "kilometers");
+            if (document.getElementById("autozoomChb").checked){
+              view.goTo(tempBuffer.extent);
+            }
+
+            // Intersect the unioned geometry with the layer to get the feature set
+            var query2 = sceneLayer.createQuery();
+            query2.geometry = bigBuffer;
+            query2.spatialRelationship = "intersects";
+            query2.outFields = ['OBJECTID'];
+            let myquery = sceneLayer.queryFeatures(query2);
+            let result = await myquery;
+
+            for (item in result.features){
+              let t = result.features[item].attributes.OBJECTID;
+              // get around the wierd bug
+              if (t == 1){
+                console.warn("Hit OBJECTID==1 bug");
+                continue;
+              } else {
+                // check to see if the feature was already infected
+                let wasInfected = false;
+                for (age in infected){
+                  wasInfected = (wasInfected || (infected[age].indexOf(t) > -1));
+                }
+                wasInfected = (wasInfected || (deceased.indexOf(t) > -1));
+                if (!wasInfected){
+                  // Add results to the newly infected list
+                  // DONE: change this to factor in infectionRate
+                  if (Math.random() < infectionRate){
+                    newlyInfected.push(t);
+                  }
+                } // else can't reinfect
+              }
+            }
+
+            simulationState.cumulativeInfections += newlyInfected.length;
+            // Sort newlyInfected
+            newlyInfected.sort(function(a, b){return a-b}); // assuming IDs are numbers
+          } // end if bigBuffer != null
+
+          // Calculate if the current oldest infected should be cleared or killed; if killed, add them to the deceased list
+          for (old in infected[infected.length-1]){
+            if (Math.random() < mortalityRate){
+              deceased.push(infected[infected.length-1][old]);
+
+              // DONE: Remove from infectedGeometry
+              delete infectedGeometry[infected[infected.length-1][old]];
+            }
+          }
+          deceased.sort();
+
+          // Age the arrays of the infected list
+          for (ai = infected.length - 1; ai > 0; ai--){
+            infected[ai] = [].concat(infected[ai - 1]);
+          }
+
+          // Add the new items from the temp array to the 0 position of infected list
+          infected[0] = newlyInfected;
+
+          // DONE: redraw the renderers
+          sceneLayer.renderer = getUniqueValueRenderer();
+
+          //update the progress indicator
+          for (age in infected){
+            totalInfected += infected[age].length;
+          }
+          var telapsed = (Math.round(getElapsedTime()/600)/100);
+          simulationState.history += "Day: " + infectionDay + " Infected: " + totalInfected +
+            " Deceased: " + deceased.length + " Time elapsed: " +
+            telapsed + " min" + "<br/>\r\n";
+          var pctCount = Math.round((totalInfected + deceased.length)/totalBuildings*100, 2);
+          setProgress("currentInfectionDiv", pctCount, false, "currentInfectedVal", (pctCount + "%"));
+          simulationState.totalDays = infectionDay;
+          simulationState.finalInfected = totalInfected;
+          simulationState.totalDeceased = deceased.length;
+          simulationState.totalElapsedTime += telapsed;
+          simulationState.finalPctInfected = pctCount;
+
+          infectionDay++;
+          document.getElementById("currentDayVal").innerHTML = infectionDay;
+          setStatus("");
+        }
+        var checkEndAt20 = (document.getElementById("stopAt20Chb").checked && (infectionDay == 21));
+        if ((totalInfected == 0) || checkEndAt20){
+          isStopped = true;
+          isReset = false;
+          isPaused = false;
+          isRunning = false;
+          isRunningOneStep = false;
+          setStatus("Simulation complete at day " + (infectionDay - 1));
+        }
+        if (isRunning && (!isRunningOneStep)){
+          setTimeout("runSim();", 100);
+        }
+      } // end runSim
+      window.runSim = runSim;
+
+      // reset the map extent to a helpful extent
+      function resetMap(){
+        //TODO: Goto extent of infected buildings, if any
+        view.goTo(sceneLayer.fullExtent);
+      }
+      window.resetMap = resetMap;
+
+      // set timer
+      var timer = 0;
+      function setTimer(){
+        var d = new Date();
+        timer = d.getTime();
+      }
+
+      // get elapsed time
+      function getElapsedTime(resetTimer){
+        var d = new Date();
+        var val = d.getTime() - timer;
+        if (resetTimer){
+          timer = d.getTime();
+        }
+        return val;
+      }
+    });
+  </script>
+</head>
+
+<body onload="main();">
+  <div id="viewDiv">
+  </div>
+  <div id="infoDiv">
+    <table class="">
+      <tr>
+        <td><button id="infoTitleButton" type="input" class="introButton" value="Title">Main</button>
+          <button id="infoInstructionsButton" type="input" class="introButton" value="Instructions">Instructions</button>
+          <button id="infoScenariosButton" type="input" class="introButton" value="Scenarios">Scenarios</button>
+          <button id="infoReportButton" type="input" class="introButton" value="Scenarios">Report</button>
+          <button id="infoAboutButton" type="input" class="introButton" value="About">About</button></td>
+        <td class="alignRight"><button id="closeInfoButton" class="runButton"><img
+        src="images/close-red.png" alt="Close Info Panel"></button></td>
+      </tr>
+      <tr>
+        <td colspan="2"><div style="overflow:auto;width:600px;height:275px;" id="infoInsertDiv"></div></td>
+      </tr>
+    </table>
+  </div>
+
+  <div id="paneDiv">
+    <div id="restoreDiv"><button id="restoreButton" class="runButton"><img id="restoreImg" src="images/restore-red.png"></button></div>
+    <div id="paramsDiv" class="slidecontainer">
+      <table class="inputTable">
+        <tr>
+          <td colspan=2 class="alignRight">
+            <div id="minParamsDiv"><button id="infoButton" class="runButton"><img
+            src="images/info-red.png" alt="Info"></button><button id="minParamsButton"
+              class="runButton"><img id="minParamsImg" src="images/minimize-red.png"></button>
+            </div>
+          </td>
+        </tr>
+          <tr>
+            <td colspan=2 class="alignCenter">Groundhog City Simulation Settings
+            </td>
+          </tr>
+        <tr>
+          <td><input type="range" min="1" max="100" value="50" class="slider" id="infectionDuration"></td>
+          <td class="sliderVal">Infection duration: <span id="infectionDurationVal"></span> days</td>
+        </tr>
+        <tr>
+          <td><input type="range" min="1" max="100" value="50" class="slider" id="infectionDistance"></td>
+          <td class="sliderVal">Infection distance: <span id="infectionDistanceVal"></span> m</td>
+        </tr>
+        <tr>
+          <td><input type="range" min="1" max="100" value="50" class="slider" id="deathRate"></td>
+          <td class="sliderVal">Mortality rate: <span id="deathRateVal"></span>%</td>
+        </tr>
+        <tr>
+          <td><input type="range" min="1" max="100" value="50" class="slider" id="infectionRate"></td>
+          <td class="sliderVal">Infection rate: <span id="infectionRateVal"></span>%</td>
+        </tr>
+        <tr>
+          <td class="alignRight">Stop at Day 20:</td>
+          <td class="sliderVal"><input type="checkbox" id="stopAt20Chb" checked></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div id="runDiv">
+      <div id="statusDiv">...</div><br/>
+      <div id="runButtonsDiv">
+        <button id="homeButton" class="runButton"><img src="images/home-red.png" alt="Home"/></button>
+        <button id="resetButton" class="runButton"><img src="images/full-rewind-red.png" alt="Reset"/></button>
+        <button id="rewindButton" class="runButton"><img src="images/rewind-red.png" alt="Rewind"/></button>
+        <button id="stopButton" class="runButton"><img src="images/stop-red.png" alt="Stop"/></button>
+        <button id="playButton" class="runButton"><img src="images/play-red.png" alt="Play"></button>
+        <button id="playStepButton" class="runButton"><img src="images/play-step-red.png" alt="Play One Step"></button>
+        <button id="pauseButton" class="runButton"><img src="images/pause-red.png" alt="Pause"></button>
+      </div>
+  </div>
+
+  <div id="scoreDiv">
+      <table class="scoreTable">
+        <tr>
+          <td align="center">
+            <div id="completeInfectionDiv">
+            <div id="currentInfectionDiv"></div></div>
+          </td>
+        </tr>
+        <tr>
+            <td align="center">
+                <span id="currentInfectedVal"></span>
+            </td>
+        </tr>
+        <tr>
+            <td align="center">
+                Day <span id="currentDayVal"></span>
+            </td>
+        </tr>
+        <tr>
+          <td align="center"><div id="hideMobile1">
+            Cumulative<br/>infection<br/>zone:<br/><input type="checkbox"
+                id="showInfectionZoneChb" checked></div></td>
+        </tr>
+        <tr>
+          <td align="center"><div id="hideMobile2">
+            Autozoom:<br/><input type="checkbox"
+                id="autozoomChb" checked></div></td>
+        </tr>
+      </table>
+  </div>
+
+  <script src="scripts/groundhog-main.js"></script>
+</body>
+</html>

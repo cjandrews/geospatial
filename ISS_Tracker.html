@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>ISS Tracker</title>
+
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+  </style>
+
+  <link rel="stylesheet" href="https://js.arcgis.com/4.6/esri/css/main.css">
+  <script src="https://js.arcgis.com/4.6"></script>
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/SceneView",
+      "esri/layers/GraphicsLayer",
+      "esri/Graphic"
+    ], function(
+      Map, SceneView,
+      GraphicsLayer, Graphic,
+      data
+    ) {
+
+      var map = new Map({
+        basemap: "satellite"
+      });
+
+      var view = new SceneView({
+        container: "viewDiv",
+        map: map,
+        constraints: {
+          altitude: {
+            max: 12000000000 // meters
+          }
+        },
+        // force the popup to the docked position
+        // for each selected feature
+        popup: {
+          dockEnabled: true,
+          dockOptions: {
+            breakpoint: false
+          }
+        }
+      });
+
+      var issLayer = new GraphicsLayer();
+      var iss;
+      var issResp;
+      var issLoc;
+
+      //map.addMany([satelliteLayer, satelliteTracks, issLayer]);
+      map.addMany([issLayer]);
+      setTimeout(function(){callWhereIsISS();}, 2000);
+      
+      function callWhereIsISS(){
+          var xhttp = new XMLHttpRequest();
+          xhttp.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+              issResp = JSON.parse(this.responseText);
+              issLoc = {
+                type: "point", // Autocasts as new Point()
+                x: issResp.longitude,
+                y: issResp.latitude,
+                z: issResp.altitude * 1000
+              };
+              updateISS();
+              //alert(this.getAllResponseHeaders());
+            }
+          };
+          xhttp.open("GET", "https://api.wheretheiss.at/v1/satellites/25544", true);
+          xhttp.send();
+          setTimeout(function(){callWhereIsISS();}, 10000);
+      }
+      
+      function updateISS() {
+        var template = { // autocasts as new PopupTemplate()
+            title: "{name}",
+            content: "Latitude: {latitude}<br>Longitude: {longitude}"
+        };
+        var graphic = new Graphic({
+          geometry: issLoc,
+          symbol: {
+            type: "simple-marker",  // autocasts as new SimpleMarkerSymbol()
+            style: "circle",
+            color: "red",
+            size: "10px",  // pixels
+            outline: {  // autocasts as new SimpleLineSymbol()
+              color: [ 255, 255, 255 ],
+              width: 1  // points
+            }
+          },
+          attributes: {
+            name:issResp.name,
+            id:issResp.id,
+            latitude:issResp.latitude,
+            longitude:issResp.longitude,
+            altitude:issResp.altitude,
+            velocity:issResp.velocity,
+            visibility:issResp.visibility,
+            footprint:issResp.footprint,
+            timestamp:issResp.timestamp,
+            daynum:issResp.daynum,
+            solar_lat:issResp.solar_lat,
+            solar_lon:issResp.solar_lon,
+            units:issResp.units
+          },
+          popupTemplate: template
+        });
+
+        issLayer.add(graphic);
+        
+        view.goTo({
+          center: [issLoc.x,issLoc.y],
+          heading: 0,
+          tilt: 0,
+          zoom: 3,
+          altitude: issLoc.z+20000
+          });
+        //view.camera.position.z = issLoc.z+20000;
+      }
+    });
+  </script>
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+</body>
+</html>

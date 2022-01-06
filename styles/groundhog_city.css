@@ -1,0 +1,237 @@
+
+    html,
+    body {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      background-color: black;
+    }
+
+    img {
+      display: block;
+    }
+
+    a {
+      color: yellow;
+    }
+
+    a:hover {
+      color: orange;
+    }
+
+    li {
+      padding-top: 4px;
+    }
+
+    #viewDiv {
+      color: #FFFFFF;
+      font-family: "Lucida Console", Times, serif;
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+
+    #info {
+      font-family: "Lucida Console", Times, serif;
+      z-index: 99;
+      padding: 5px;
+      margin: 5px;
+      width: 120px;
+      text-align: center;
+      border: solid 2px #666;
+      border-radius: 4px;
+      background-color: #000;
+    }
+
+    #infoTitleImg {
+      text-align: center;
+    }
+
+    #statusDiv {
+      padding: 2px;
+      text-align:right;
+      background-color: rgba(0, 0, 0, 0.1);
+    }
+
+    #paneDiv {
+      padding: 0px 0px 5px 0px;
+      background-color: rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+
+    #paneDiv:hover {
+      background-color: rgba(0, 0, 0, 0.6);
+    }
+
+    #infoDiv{
+      /*display: none;*/
+      color: #FFFFFF;
+      /*margin-left: 200px;
+      margin-top: 100px;
+      width: 50%;
+      position: fixed;
+      top: 100;
+      left: 100;
+      padding: 5px;*/
+      background-color: rgba(0, 0, 0, 0.6);
+    }
+
+    #scoreDiv {
+      padding: 5px 5px 5px 5px;
+      background-color: rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+
+    #scoreDiv:hover {
+      background-color: rgba(0, 0, 0, 0.6);
+    }
+
+    #runDiv {
+      background-color: rgba(0, 0, 0, 0.0);
+      box-shadow: none;
+    }
+
+    #runButtonsDiv {
+      display: none;
+    }
+
+    .alignRight{
+      text-align: right;
+    }
+
+    .alignCenter{
+      text-align: center;
+    }
+
+    .chkLabel {
+      font-size: 12px;
+    }
+
+    .slidecontainer {
+      width: 100%;
+    }
+
+    .slider {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 7px;
+      border-radius: 15px;
+      background: #FF0000;
+      outline: none;
+      opacity: 0.5;
+      -webkit-transition: .3s;
+      transition: opacity .3s;
+    }
+
+    .slider:hover {
+      opacity: 1;
+    }
+
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+      cursor: pointer;
+    }
+
+    .slider::-moz-range-thumb {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+      cursor: pointer;
+    }
+
+    .sliderVal{
+      color: #DDDDDD;
+      font-size: calc(0.3em + 50%);
+    }
+
+    .introButton {
+      background-color: #990000;
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      text-decoration: none;
+      margin: 4px 2px 0px 2px;
+      cursor: pointer;
+    }
+
+    #minParamsDiv {
+      padding: 0px;
+      margin: 0px;
+      float: right;
+    }
+
+    #restoreDiv {
+      padding: 0px;
+      margin: 0px;
+      display: none;
+    }
+
+    #infectionDuration::-webkit-slider-thumb {
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+    }
+
+    #infectionDuration::-moz-range-thumb {
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+    }
+
+    #deathRate::-webkit-slider-thumb {
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+    }
+
+    #deathRate::-moz-range-thumb {
+      background: url('https://chri7928.github.io/candrews/images/scb40.png');
+    }
+
+    .inputTable{
+      padding: 0px;
+      margin: 0px;
+    }
+
+    .scoreTable{
+      padding: 0px;
+      margin: 0px;
+      text-align: center;
+    }
+
+    td {
+      padding: 9px;
+    }
+
+    #completeInfectionDiv {
+      width: 10px;
+      height: 80px;
+      background-color: #F00;
+    }
+
+    #currentInfectionDiv {
+      width: 10px;
+      height: 10%;
+      background-color: #00F;
+    }
+
+    input {
+      border: none;
+    }
+
+    button {
+      border: none;
+      background-color: rgba(0, 0, 0, 0);
+      padding: 0px;
+      margin: 0px;
+    }
+    button:hover {
+      border: none;
+      background-color: rgba(0, 0, 0, 0.2);
+    }
+    .runButton{
+      padding: 3px;
+      margin-right: 5px;
+    }

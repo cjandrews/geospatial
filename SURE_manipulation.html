@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>
+      IntegratedMeshLayer modification | Demonstration | ArcGIS API for JavaScript 4.16
+    </title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.16/esri/themes/light/main.css"
+    />
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <script src="https://js.arcgis.com/4.16/"></script>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+
+      #tools {
+        display: none;
+        padding: 1em;
+      }
+
+      #apply {
+        display: none;
+        margin-top: 10px;
+      }
+
+      .clip {
+        border-bottom: 3px solid rgb(255, 102, 156);
+      }
+      .mask {
+        border-bottom: 3px solid rgb(102, 255, 199);
+      }
+      .replace {
+        border-bottom: 3px solid rgb(102, 148, 255);
+      }
+
+      .option {
+        margin: 5px 0;
+      }
+      
+      html, body, h1, h2, h3, h4, h5, h6 {
+        font-family: "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif;
+      }
+      
+      .cj-blue{ color: #0961aa; }
+    </style>
+
+    <script>
+      require([
+        "esri/layers/GraphicsLayer",
+        "esri/WebScene",
+        "esri/views/SceneView",
+        "esri/widgets/Sketch/SketchViewModel",
+        "esri/layers/support/SceneModification",
+        "esri/layers/support/SceneModifications"
+      ], function (
+        GraphicsLayer,
+        WebScene,
+        SceneView,
+        SketchViewModel,
+        SceneModification,
+        SceneModifications
+      ) {
+        // Load webscene with IntegratedMeshLayer
+        const webscene = new WebScene({
+          portalItem: {
+            id: "fa08f4a2d3da41faac15811c6a8268a4"
+          }
+        });
+
+        const view = new SceneView({
+          container: "viewDiv",
+          map: webscene
+        });
+
+        let imlayer;
+
+        // Create graphicslayer to store modifications and add to the map
+        const graphicslayer = new GraphicsLayer();
+        view.map.add(graphicslayer);
+
+        // polygon symbol used for sketching the modifications
+        const sketchpolygon = {
+          type: "polygon-3d", // autocasts as new PolygonSymbol3D()
+          symbolLayers: [
+            {
+              type: "fill", // autocasts as new FillSymbol3DLayer()
+              material: {
+                color: [255, 255, 255, 0.8]
+              },
+              outline: {
+                size: "3px",
+                color: [82, 82, 122, 1]
+              }
+            }
+          ]
+        };
+
+        // polygon symbol to symbolize the modifications
+        let modificationpolygon = {
+          type: "polygon-3d", // autocasts as new PolygonSymbol3D()
+          symbolLayers: [
+            {
+              type: "line", // autocasts as new LineSymbol3DLayer()
+              material: {
+                color: [0, 0, 0, 0]
+              },
+              size: "7px"
+            }
+          ]
+        };
+
+        /*
+         * define the SketchViewModel and pass in the symbol for sketching polygon
+         * set updateOnGraphicClick to false to be able to start the update process
+         * depending on the defined modification.
+         * clip, mask --> z-value is not used
+         * replace --> z-value is used to define the flatten height
+         */
+        const sketchViewModel = new SketchViewModel({
+          layer: graphicslayer,
+          view: view,
+          polygonSymbol: sketchpolygon,
+          updateOnGraphicClick: false
+        });
+
+        // Add click event to the button to start sketch a polygon
+        const createModificationButton = document.getElementById(
+          "createModification"
+        );
+        createModificationButton.addEventListener("click", function (event) {
+          event.target.classList.add("esri-button--secondary");
+          sketchViewModel.create("polygon");
+        });
+
+        // listen to changes on the modificationtype
+        const modificationtype = document.getElementsByName("modificationtype");
+        for (var i = 0, length = modificationtype.length; i < length; i++) {
+          modificationtype[i].onclick = modificationTypeChanged;
+        }
+
+        // listen to the apply button and complete the update process
+        document.getElementById("applyModification").onclick = function () {
+          sketchViewModel.complete();
+        };
+
+        /*
+         * listen on sketch-create
+         * - indicate on the button that the create operation is finished
+         * - add the modificationtype as attribute
+         * - update the IntegratedMesh with the modifications
+         * - start the update graphic and enable the Z only on type "replace"
+         */
+        sketchViewModel.on("create", function (event) {
+          if (event.state === "complete") {
+            //view.goTo(event.graphic.geometry.extent);
+            createModificationButton.classList.remove("esri-button--secondary");
+            updateModificationType(
+              event.graphic,
+              getSelectedModificationType()
+            );
+            updateIntegratedMesh();
+            sketchViewModel.update(event.graphic, {
+              enableZ: getSelectedModificationType() == "replace" ? true : false
+            });
+          }
+        });
+
+        /*
+         * listen on sketch-update
+         * - set the radio-button-modification-type accordingly to the attribute
+         * - when the graphic update process is completed update the IntegratedMesh modifications
+         */
+        sketchViewModel.on("update", function (event) {
+          if (event.state === "start") {
+            document.getElementById(
+              "modification-" + event.graphics[0].attributes.modificationtype
+            ).checked = true;
+            document.getElementById("apply").style.display = "block";
+          }
+          if (event.state === "complete") {
+            document.getElementById("apply").style.display = "none";
+            updateIntegratedMesh();
+          }
+        });
+
+        // listen to sketch-delete and update the IntegratedMesh modifications
+        sketchViewModel.on("delete", updateIntegratedMesh);
+
+        view.when(function () {
+          // get the IntegratedMesh-Layer from the WebScene
+          imlayer = webscene.layers.find(function (layer) {
+            return layer.type === "integrated-mesh";
+          });
+
+          // listen to click events to detect if the user would like to update a graphic
+          view.on("click", function (event) {
+            view
+              .hitTest(event, {
+                include: [graphicslayer],
+                exclude: [view.map.ground]
+              })
+              .then(processSelectedGraphic);
+          });
+
+          // add the ui
+          view.ui.add("tools", "top-right");
+          document.getElementById("tools").style.display = "block";
+        });
+
+        /*
+         * listen to click events to detect if the user would like to update a graphic
+         * - with hittest get the selected graphic
+         * - only if there is no create or update ongoing
+         * - start the update process dependent on the modificationtype -> "replace" with enableZ
+         */
+        function processSelectedGraphic(hitTestResult) {
+          if (!sketchViewModel.activeTool) {
+            if (hitTestResult.results.length > 0) {
+              const graphicToModify = hitTestResult.results[0].graphic;
+              sketchViewModel.update(graphicToModify, {
+                enableZ:
+                  graphicToModify.attributes.modificationtype == "replace"
+                    ? true
+                    : false
+              });
+            }
+          }
+        }
+
+        // Get the selected modificationtype from radio-button-ui
+        function getSelectedModificationType() {
+          for (var i = 0; i < modificationtype.length; i++) {
+            if (modificationtype[i].checked) {
+              return modificationtype[i].value;
+            }
+          }
+        }
+
+        // update the attribute and modification on radio-button click
+        function modificationTypeChanged() {
+          var item = sketchViewModel.updateGraphics.items[0];
+          if (item) {
+            try {
+              updateModificationType(item, this.value);
+              sketchViewModel.update(item, {
+                enableZ: this.value == "replace" ? true : false
+              });
+              updateIntegratedMesh();
+            } catch (error) {
+              console.log(error);
+            }
+          }
+        }
+
+        // update/add the modificationtype as attribute information and change the symbolization accordingly
+        function updateModificationType(graphic, modificationtype) {
+          graphic.attributes = { modificationtype: modificationtype };
+          let colors = {
+            clip: [255, 102, 156],
+            mask: [102, 255, 199],
+            replace: [102, 148, 255]
+          };
+          modificationpolygon.symbolLayers[0].material.color =
+            colors[modificationtype];
+          graphic.symbol = modificationpolygon;
+        }
+
+        // update the IntegratedMesh with the modifications
+        function updateIntegratedMesh() {
+          // create the modification collection with the geometry and attribute from the graphicslayer
+          let modifications = new SceneModifications(
+            graphicslayer.graphics.toArray().map(function (graphic) {
+              return new SceneModification({
+                geometry: graphic.geometry,
+                type: graphic.attributes.modificationtype
+              });
+            })
+          );
+
+          // add the modifications to the IntegratedMesh
+          imlayer.modifications = modifications;
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+    <div id="tools" class="esri-widget w3-display-container">
+      <div class="w3-container w3-margin-bottom"> 
+        <span onclick="document.getElementById('helpSplash').style.display='block'" 
+              class="w3-button w3-large w3-display-topright w3-blue w3-right">?</span>
+      </div>
+      <div class="w3-container w3-margin-top"> 
+        <h3>Mesh Modification Demo</h3>
+      </div>
+      <div class="w3-container w3-margin-top w3-margin-bottom">
+        <p>Select modification type:</p>
+        <div class="option">
+          <input
+            type="radio"
+            name="modificationtype"
+            id="modification-clip"
+            value="clip"
+            checked
+          />
+          <label class="clip" for="modification-clip"><b>&nbsp;Clip </b></label> -
+          removes selected area
+        </div>
+        <div class="option">
+          <input
+            type="radio"
+            name="modificationtype"
+            id="modification-mask"
+            value="mask"
+          />
+          <label class="mask" for="modification-mask"><b>&nbsp;Mask </b></label> -
+          displays only selected area
+        </div>
+        <div class="option">
+          <input
+            type="radio"
+            name="modificationtype"
+            id="modification-replace"
+            value="replace"
+          />
+          <label class="replace" for="modification-replace"
+            ><b>&nbsp;Replace </b></label
+          >
+          - flattens selected area
+        </div>
+      </div>
+      <button id="createModification" class="w3-button w3-blue">
+        Create a modification
+      </button>
+      <div id="apply">
+        <button id="applyModification" class="w3-button w3-blue">Apply</button>
+      </div>
+    </div>
+    
+    <!-- The Modal -->
+    <div class="w3-container">
+      <div id="helpSplash" class="w3-modal w3-medium" style="display:block">
+        <div class="w3-modal-content w3-animate-top w3-card-4 w3-border">
+          <header class="w3-container w3-large w3-blue w3-border"> 
+            <span onclick="document.getElementById('helpSplash').style.display='none'" 
+                  class="w3-button w3-xlarge w3-display-topright w3-border-0" style="background-color:transparent">X</span>
+            <h2>ArcGIS API for JavaScript - Mesh Manipulation Demo App</h2>
+          </header>
+          <div class="w3-container">
+            <p>The ArcGIS API for JavaScript includes the ability to modify I3S integrated mesh scene layers to <b>mask, clip, and replace (flatten) regions</b> of the mesh.  
+              The modification happens client-side in the browser and does not modify the underlying data.</p>
+            <p class="cj-blue">To try it out:</p>
+            <ol class="cj-blue">
+              <li>Zoom into an area of interest on the mesh using the mouse or the navigation buttons</li>
+              <li>Select a type of modification to create by choosing one of the options</li>
+              <li>Click the "<b>Create a modification</b>" button to activate the modification tool</li>
+              <li>Click multiple times on the mesh to drawing a polygon that will capture the extent of the modification</li>
+              <li>Double-click to complete the polygon</li>
+              <li>Click the "<b>Apply</b>" button to display the modification</li>
+            </ol>
+            <p><img src="images/mesh_manipulation.jpg" style="width:30%" alt="Example of masking" class="w3-center"></p>
+            <span onclick="document.getElementById('helpSplash').style.display='none'" 
+                  class="w3-button w3-large w3-center w3-blue w3-border-0" style="background-color:transparent">Get started!</span>
+            <p>Modifications can also be created on the desktop in ArcGIS Pro and then published along with the scene layer for access from web clients.</p>
+            <p>The integrated mesh scene layer in this example was generated with nFrames SURE (now SURE for ArcGIS) and is used courtesy of Aerowest GmbH!</p>
+            <p><img src="images/esri-17GlobeLogo_tag-right_1CRev_black.png" style="width:20%" alt="Esri logo" class="w3-right"></p>
+          </div>
+          <footer class="w3-container w3-blue w3-display-container w3-border w3-padding-16">
+            &#128161; <a href="https://developers.arcgis.com/javascript/latest/sample-code/layers-integratedmeshlayer-modification/index.html" 
+               title="Explore the documentation on the Esri Developers ArcGIS API for JavaScript pages">Explore the ArcGIS API for JavaScript documentation<a/>
+            <br/>
+            &#127758; <a href="https://www.esri.com/en-us/c/product/20/esri-and-nframes" 
+               title="Learn more about Esri and nFrames">Learn more about Esri and nFrames<a/>
+          </footer>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

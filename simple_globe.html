@@ -1,0 +1,55 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <!--
+  ArcGIS API for JavaScript, https://js.arcgis.com
+  For more information about the intro-sceneview sample, read the original sample description at developers.arcgis.com.
+  https://developers.arcgis.com/javascript/latest/sample-code/intro-sceneview/index.html
+  -->
+<title>
+      Intro to SceneView - Create a 3D map | Sample | ArcGIS API for JavaScript
+      4.17
+    </title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.17/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.17/"></script>
+
+    <script>
+      require(["esri/WebScene", "esri/views/SceneView"], function (WebScene, SceneView) {
+       var scene = new WebScene({
+          portalItem: {
+            id: "906dc270244e43b08d1f0dbabc4d3912" //7c7e518037884e36801919f8a734c3ca
+          }
+        });
+
+        var view = new SceneView({
+          container: "viewDiv",
+          map: scene,
+          scale: 50000000,
+          center: [-101.17, 21.78]
+        });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
